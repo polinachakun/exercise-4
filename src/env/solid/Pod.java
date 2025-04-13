@@ -1,5 +1,11 @@
 package solid;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 import cartago.Artifact;
 import cartago.OPERATION;
 import cartago.OpFeedbackParam;
@@ -27,10 +33,48 @@ public class Pod extends Artifact {
    * @param containerName The name of the container to be created
    * 
    */
-    @OPERATION
-    public void createContainer(String containerName) {
-        log("1. Implement the method createContainer()");
+@OPERATION
+public void createContainer(String containerName) {
+    try {
+        String containerURL = this.podURL + "/" + containerName + "/";
+        
+        HttpURLConnection checkConn = (HttpURLConnection) new URL(containerURL).openConnection();
+        checkConn.setRequestMethod("HEAD");
+        
+        if (checkConn.getResponseCode() == 200) {
+            log("Container already exists: " + containerURL);
+            return;
+        }
+        
+        HttpURLConnection conn = (HttpURLConnection) new URL(this.podURL).openConnection();
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", "text/turtle");
+        conn.setRequestProperty("Link", "<http://www.w3.org/ns/ldp#Container>; rel=\"type\"");
+        conn.setRequestProperty("Slug", containerName);
+        conn.setRequestProperty("Authorization", "Bearer " + getAuthToken());
+        
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write("".getBytes());
+        }
+        
+        int responseCode = conn.getResponseCode();
+        if (responseCode >= 200 && responseCode < 300) {
+            log("Container created successfully: " + containerURL);
+        } else {
+            log("Failed to create container. Response code: " + responseCode);
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getErrorStream()))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    log(line);
+                }
+            }
+        }
+    } catch (Exception e) {
+        log("Error creating container: " + e.getMessage());
+        e.printStackTrace();
     }
+}
 
   /**
    * CArtAgO operation for publishing data within a .txt file in a Linked Data Platform container of the Solid pod
@@ -41,7 +85,37 @@ public class Pod extends Artifact {
    */
     @OPERATION
     public void publishData(String containerName, String fileName, Object[] data) {
-        log("2. Implement the method publishData()");
+            try {
+                String resourceURL = this.podURL + "/" + containerName + "/" + fileName;
+                
+                String content = createStringFromArray(data);
+                
+                HttpURLConnection conn = (HttpURLConnection) new URL(resourceURL).openConnection();
+                conn.setRequestMethod("PUT"); 
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Content-Type", "text/plain"); 
+                conn.setRequestProperty("Authorization", "Bearer " + getAuthToken());
+                
+                try (OutputStream os = conn.getOutputStream()) {
+                    os.write(content.getBytes());
+                }
+                
+                int responseCode = conn.getResponseCode();
+                if (responseCode >= 200 && responseCode < 300) {
+                    log("Data published successfully to: " + resourceURL);
+                } else {
+                    log("Failed to publish data. Response code: " + responseCode);
+                    try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getErrorStream()))) {
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            log(line);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log("Error publishing data: " + e.getMessage());
+                e.printStackTrace();
+            }
     }
 
   /**
@@ -64,23 +138,37 @@ public class Pod extends Artifact {
    * @return An array whose elements are the data read from the .txt file
    */
     public Object[] readData(String containerName, String fileName) {
-        log("3. Implement the method readData(). Currently, the method returns mock data");
-
-        // Remove the following mock responses once you have implemented the method
-        switch(fileName) {
-            case "watchlist.txt":
-                Object[] mockWatchlist = new Object[]{"The Matrix", "Inception", "Avengers: Endgame"};
-                return mockWatchlist;
-            case "sleep.txt":
-                Object[] mockSleepData = new Object[]{"6", "7", "5"};
-                return mockSleepData;
-            case "trail.txt":
-                Object[] mockTrailData = new Object[]{"3", "5.5", "5.5"};
-                return mockTrailData; 
-            default:
+        try {
+            String resourceURL = this.podURL + "/" + containerName + "/" + fileName;
+            
+            HttpURLConnection conn = (HttpURLConnection) new URL(resourceURL).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Accept", "text/plain");
+            conn.setRequestProperty("Authorization", "Bearer " + getAuthToken());
+            
+            int responseCode = conn.getResponseCode();
+            if (responseCode == 200) {
+                StringBuilder content = new StringBuilder();
+                try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream()))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        content.append(line).append("\n");
+                    }
+                }
+                
+                log("Data read successfully from: " + resourceURL);
+               
+                return createArrayFromString(content.toString());
+            } else {
+                log("Failed to read data. Response code: " + responseCode);
                 return new Object[0];
+                }
+        } catch (Exception e) {
+            log("Error reading data: " + e.getMessage());
+            e.printStackTrace();
+            
+            return new Object[0];
         }
-
     }
 
   /**
@@ -125,5 +213,9 @@ public class Pod extends Artifact {
         System.arraycopy(oldData, 0, allData, 0, oldData.length);
         System.arraycopy(data, 0, allData, oldData.length, data.length);
         publishData(containerName, fileName, allData);
+    }
+
+    private String getAuthToken() {
+        return "afd7d4aac5c0bf42e33a95cfb9330683395d26cae42c57febc8222258645dbf133a663b119aba53c25fc3494f441f544aae0c21a43d7efb002f41635f66d2290"; 
     }
 }
